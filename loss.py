@@ -146,3 +146,5 @@ def total_loss(left_image,left_disps,right_image,right_disps,alpha_image_loss=1.
     total_loss += disp_consis_weight*disp_consistency
 
     return total_loss
+
+
