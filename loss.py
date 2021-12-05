@@ -12,8 +12,8 @@ def bilinear_sampler_1d_h(image,disp):
     x = paddle.arange(W)
     y = paddle.arange(H)
     y_grid,x_grid = paddle.meshgrid(y,x)
-    y_grid = y_grid.reshape(1,1,H,W).expand((B,-1,-1,-1))
-    x_grid = x_grid.reshape(1,1,H,W).expand((B,-1,-1,-1)) + disp
+    y_grid = y_grid.reshape((1,1,H,W)).expand((B,-1,-1,-1))
+    x_grid = x_grid.reshape((1,1,H,W)).expand((B,-1,-1,-1)) + disp
 
     y_grid = 1.0*y_grid/(H-1.0)
     x_grid = 1.0*x_grid/(W-1.0)
@@ -30,26 +30,29 @@ def generate_image_right(image,disp):
     return bilinear_sampler_1d_h(image,disp)
 
 def gradient_x(img):
-    gx = img[:,:,:-1,:] - img[:,:,1:,:]
+    gx = img[:,:,:,:-1] - img[:,:,:,1:]
     return gx
 
 def gradient_y(img):
-    gy = img[:,:-1,:,:] - img[:,1:,:,:]
+    gy = img[:,:,:-1,:] - img[:,:,1:,:]
     return gy
 
 def get_disparity_smoothness(image,disp):
     
-    disp_grad_x = gradient_x(disp)
-    disp_grad_y = gradient_y(disp)
+    disp_grad_x = gradient_x(F.pad(disp,pad=[1,0,0,0]))
+    disp_grad_y = gradient_y(F.pad(disp,pad=[0,0,1,0]))
 
-    image_grad_x = gradient_x(image)
-    image_grad_y = gradient_y(image)
+    image_grad_x = gradient_x(F.pad(image,pad=[1,0,0,0]))
+    image_grad_y = gradient_y(F.pad(image,pad=[0,0,1,0]))
 
     weight_x = paddle.exp(-image_grad_x.abs().mean())
     weight_y = paddle.exp(-image_grad_y.abs().mean())
 
     smooth_x = disp_grad_x*weight_x
     smooth_y = disp_grad_y*weight_y
+
+    print('smooth_x',smooth_x.shape)
+    print('smooth_y',smooth_y.shape)
 
     return smooth_x + smooth_y
 
@@ -70,7 +73,7 @@ def SSIM(x,y):
 
     SSIM = SSIM_n / SSIM_d
 
-    return paddle.clip_by_value((1 - SSIM) / 2, 0, 1)
+    return paddle.clip((1 - SSIM) / 2, 0, 1)
 
 def total_loss(left_image,left_disps,right_image,right_disps,alpha_image_loss=1.0,disp_smooth_weight=1.0,disp_consis_weight=1.0 ):
 
@@ -92,8 +95,8 @@ def total_loss(left_image,left_disps,right_image,right_disps,alpha_image_loss=1.
         left_image_est = generate_image_left(right_images[s],left_disps[s])
         right_image_est = generate_image_right(left_images[s],right_disps[s])
 
-        left_image_est.append(left_image_est)
-        right_images_est.append(right_images_est)
+        left_images_est.append(left_image_est)
+        right_images_est.append(right_image_est)
 
     # generate disparity
     left_to_right_disps = []
@@ -109,8 +112,8 @@ def total_loss(left_image,left_disps,right_image,right_disps,alpha_image_loss=1.
     left_disps_smooth = []
     right_disps_smooth = []
     for s in range(pyramid_size):
-        left_disp_smooth = get_disparity_smoothness(left_disps[s])
-        right_disp_smooth = get_disparity_smoothness(right_disps[s])
+        left_disp_smooth = get_disparity_smoothness(left_images[s],left_disps[s])
+        right_disp_smooth = get_disparity_smoothness(right_images[s],right_disps[s])
 
         left_disps_smooth.append(left_disp_smooth)
         right_disps_smooth.append(right_disp_smooth)
@@ -148,3 +151,12 @@ def total_loss(left_image,left_disps,right_image,right_disps,alpha_image_loss=1.
     return total_loss
 
 
+if __name__ == '__main__':
+
+    left_image = paddle.rand((1,1,256,512))
+    right_image = paddle.rand((1,1,256,512))
+
+    left_disp = paddle.rand((1,1,256,512))
+    right_disp = paddle.rand((1,1,256,512))
+
+    total_loss(left_image,[left_disp],right_image,[right_disp])
